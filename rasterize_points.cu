@@ -191,6 +191,8 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Te
 	  dL_dsh.contiguous().data<float>(),
 	  dL_dscales.contiguous().data<float>(),
 	  dL_drotations.contiguous().data<float>(),
+	  dL_dcamerapos.contiguous().data<float>(),
+	  dL_dcamerarot.contiguous().data<float>(),
 	  debug);
   }
 
