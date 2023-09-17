@@ -161,9 +161,12 @@ class _RasterizeGaussians(torch.autograd.Function):
             camerarot,
         )
         return color, radii
-
+    
+    @jaxtyped
+    @typechecked
     @staticmethod
-    def backward(ctx, grad_out_color: Tensor, _):
+    def backward(ctx, grad_out_color, _):
+        #print(grad_out_color.shape)
         # Restore necessary values from context
         num_rendered = ctx.num_rendered
         raster_settings = ctx.raster_settings
@@ -286,8 +289,8 @@ class GaussianRasterizer(nn.Module):
     def forward(
         self,
         means3D: Float[Tensor, "num_gaussians 3"],
-        means2D: Tensor,
-        opacities,
+        means2D: Float[Tensor, "num_gaussians 3"],
+        opacities: Float[Tensor, "num_gaussians 1"],
         shs: Optional[Tensor] = None,
         colors_precomp: Optional[Tensor] = None,
         scales: Optional[Tensor] = None,
