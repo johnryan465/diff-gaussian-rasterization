@@ -9,28 +9,49 @@
 # For inquiries contact  george.drettakis@inria.fr
 #
 
-from typing import NamedTuple
+from typing import NamedTuple, Tuple
 import torch.nn as nn
+from torch import Tensor
 import torch
 from . import _C
+from jaxtyping import Float, jaxtyped
+from typeguard import typechecked
+
+
+class GaussianRasterizationSettings(NamedTuple):
+    image_height: int
+    image_width: int 
+    tanfovx : float
+    tanfovy : float
+    bg : torch.Tensor
+    scale_modifier : float
+    viewmatrix : torch.Tensor
+    projmatrix : torch.Tensor
+    sh_degree : int
+    campos : torch.Tensor
+    prefiltered : bool
+    debug : bool
 
 def cpu_deep_copy_tuple(input_tuple):
     copied_tensors = [item.cpu().clone() if isinstance(item, torch.Tensor) else item for item in input_tuple]
     return tuple(copied_tensors)
 
+@jaxtyped
+@typechecked
 def rasterize_gaussians(
-    means3D,
-    means2D,
-    sh,
-    colors_precomp,
-    opacities,
-    scales,
-    rotations,
-    cov3Ds_precomp,
-    camerapos,
-    camerarot,
-    raster_settings,
+    means3D: Float[Tensor, "num_gaussians 3"],
+    means2D: Float[Tensor, "num_gaussians 3"],
+    sh: Float[Tensor, "num_gaussians num_coeffs num_channels"],
+    colors_precomp: Tensor,
+    opacities: Float[Tensor, "num_gaussians 1"],
+    scales: Float[Tensor, "num_gaussians 3"],
+    rotations: Float[Tensor, "num_gaussians 4"],
+    cov3Ds_precomp: Tensor,
+    camerapos: Tensor,
+    camerarot: Tensor,
+    raster_settings: GaussianRasterizationSettings,
 ):
+    print("rasterize_gaussians", means3D.shape)
     return _RasterizeGaussians.apply(
         means3D,
         means2D,
@@ -59,8 +80,8 @@ class _RasterizeGaussians(torch.autograd.Function):
         cov3Ds_precomp,
         camerapos,
         camerarot,
-        raster_settings,
-    ):
+        raster_settings: GaussianRasterizationSettings,
+    ) -> Tuple[Tensor, Tensor]:
 
         # Restructure arguments the way that the C++ lib expects them
         args = (
@@ -146,6 +167,9 @@ class _RasterizeGaussians(torch.autograd.Function):
         else:
              grad_means2D, grad_colors_precomp, grad_opacities, grad_means3D, grad_cov3Ds_precomp, grad_sh, grad_scales, grad_rotations, grad_camerapos, grad_camerarot = _C.rasterize_gaussians_backward(*args)
 
+
+        # print(grad_camerapos)
+
         grads = (
             grad_means3D,
             grad_means2D,
@@ -162,22 +186,10 @@ class _RasterizeGaussians(torch.autograd.Function):
 
         return grads
 
-class GaussianRasterizationSettings(NamedTuple):
-    image_height: int
-    image_width: int 
-    tanfovx : float
-    tanfovy : float
-    bg : torch.Tensor
-    scale_modifier : float
-    viewmatrix : torch.Tensor
-    projmatrix : torch.Tensor
-    sh_degree : int
-    campos : torch.Tensor
-    prefiltered : bool
-    debug : bool
+
 
 class GaussianRasterizer(nn.Module):
-    def __init__(self, raster_settings):
+    def __init__(self, raster_settings: GaussianRasterizationSettings):
         super().__init__()
         self.raster_settings = raster_settings
 
