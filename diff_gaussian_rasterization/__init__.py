@@ -9,7 +9,7 @@
 # For inquiries contact  george.drettakis@inria.fr
 #
 
-from typing import NamedTuple, Optional, Tuple
+from typing import NamedTuple, Optional, Tuple, Union
 import torch.nn as nn
 from torch import Tensor
 import torch
@@ -47,7 +47,7 @@ def rasterize_gaussians(
     means3D: Float[Tensor, "num_gaussians 3"],
     means2D: Float[Tensor, "num_gaussians 3"],
     sh: Float[Tensor, "num_gaussians num_coeffs num_channels"],
-    colors_precomp: Tensor,
+    colors_precomp: Union[Float[Tensor, "num_gaussians 3"], Float[Tensor, "*"]],
     opacities: Float[Tensor, "num_gaussians 1"],
     scales: Float[Tensor, "num_gaussians 3"],
     rotations: Float[Tensor, "num_gaussians 4"],
@@ -80,11 +80,11 @@ class _RasterizeGaussians(torch.autograd.Function):
         ctx,
         means3D: Float[Tensor, "num_gaussians 3"],
         means2D: Float[Tensor, "num_gaussians 3"],
-        sh: Tensor,
-        colors_precomp: Tensor,
-        opacities: Tensor,
-        scales: Tensor,
-        rotations: Tensor,
+        sh: Float[Tensor, "num_gaussians num_coeffs num_channels"],
+        colors_precomp: Union[Float[Tensor, "num_gaussians 3"], Float[Tensor, "*"]],
+        opacities: Float[Tensor, "num_gaussians 1"],
+        scales: Float[Tensor, "num_gaussians 3"],
+        rotations: Float[Tensor, "num_gaussians 4"],
         cov3Ds_precomp: Tensor,
         camerapos: Tensor,
         camerarot: Tensor,
