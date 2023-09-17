@@ -17,7 +17,7 @@ namespace cg = cooperative_groups;
 
 // Backward pass for conversion of spherical harmonics to RGB for
 // each Gaussian.
-__device__ void computeColorFromSH(int idx, int deg, int max_coeffs, const glm::vec3* means, glm::vec3 campos, const float* shs, const bool* clamped, const glm::vec3* dL_dcolor, glm::vec3* dL_dmeans, glm::vec3* dL_dshs, glm::vec3* dL_dcamerapos)
+__device__ void computeColorFromSH(int idx, int deg, int max_coeffs, const glm::vec3* means, glm::vec3 campos, const float* shs, const bool* clamped, const glm::vec3* dL_dcolor, glm::vec3* dL_dmeans, glm::vec3* dL_dshs, float3* dL_dcamerapos)
 {
 	// Compute intermediate values, as it is done during forward
 	glm::vec3 pos = means[idx];
@@ -141,7 +141,10 @@ __device__ void computeColorFromSH(int idx, int deg, int max_coeffs, const glm::
 	// Gradients of the loss w.r.t to the camera position due to the
 	// change to the view dependent color.
 	// This is the negative of the gradient of the loss w.r.t. the mean
-	dL_dcamerapos[0] -= addition;
+	//dL_dcamerapos[0] -= addition;
+	atomicAdd(&dL_dcamerapos[0].x, -addition.x);
+	atomicAdd(&dL_dcamerapos[0].y, -addition.y);
+	atomicAdd(&dL_dcamerapos[0].z, -addition.z);
 
 }
 
@@ -369,7 +372,7 @@ __global__ void preprocessCUDA(
 	float* dL_dsh,
 	glm::vec3* dL_dscale,
 	glm::vec4* dL_drot,
-	glm::vec3* dL_dcamerapos)
+	float3* dL_dcamerapos)
 {
 	auto idx = cg::this_grid().thread_rank();
 	if (idx >= P || !(radii[idx] > 0))
@@ -396,7 +399,7 @@ __global__ void preprocessCUDA(
 
 	// Compute gradient updates due to computing colors from SHs
 	if (shs)
-		computeColorFromSH(idx, D, M, (glm::vec3*)means, *campos, shs, clamped, (glm::vec3*)dL_dcolor, (glm::vec3*)dL_dmeans, (glm::vec3*)dL_dsh, (glm::vec3*)dL_dcamerapos);
+		computeColorFromSH(idx, D, M, (glm::vec3*)means, *campos, shs, clamped, (glm::vec3*)dL_dcolor, (glm::vec3*)dL_dmeans, (glm::vec3*)dL_dsh, dL_dcamerapos);
 
 	// Compute gradient updates due to computing covariance from scale/rotation
 	if (scales)
@@ -464,8 +467,6 @@ renderCUDA(
 
 	float last_alpha = 0;
 	float last_color[C] = { 0 };
-	dL_dcamerapos[0] = 1;
-	dL_dcamerarot[0] = 1;
 
 	// Gradient of pixel coordinate w.r.t. normalized 
 	// screen-space viewport corrdinates (-1 to 1)
@@ -591,7 +592,7 @@ void BACKWARD::preprocess(
 	float* dL_dsh,
 	glm::vec3* dL_dscale,
 	glm::vec4* dL_drot,
-	glm::vec3* dL_dcamerapos)
+	float3* dL_dcamerapos)
 {
 	// Propagate gradients for the path of 2D conic matrix computation. 
 	// Somewhat long, thus it is its own kernel rather than being part of 
