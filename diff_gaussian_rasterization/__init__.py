@@ -52,8 +52,8 @@ def rasterize_gaussians(
     scales: Float[Tensor, "num_gaussians 3"],
     rotations: Float[Tensor, "num_gaussians 4"],
     cov3Ds_precomp: Tensor,
-    camerapos: Tensor,
-    camerarot: Tensor,
+    camerapos: Float[Tensor, "3"],
+    camerarot: Float[Tensor, "4 4"],
     raster_settings: GaussianRasterizationSettings,
 ):
     # print("rasterize_gaussians", means3D.shape)
@@ -263,6 +263,8 @@ class _RasterizeGaussians(torch.autograd.Function):
             grad_camerarot,
             None,
         )
+        print(grad_camerapos)
+        print(grad_camerarot)
 
         return grads
 

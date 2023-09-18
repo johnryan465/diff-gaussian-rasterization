@@ -424,7 +424,7 @@ renderCUDA(
 	float4* __restrict__ dL_dconic2D,
 	float* __restrict__ dL_dopacity,
 	float* __restrict__ dL_dcolors,
-	float* __restrict__ dL_dcamerapos,
+	float3* __restrict__ dL_dcamerapos,
 	float* __restrict__ dL_dcamerarot)
 {
 	// We rasterize again. Compute necessary block info.
@@ -652,7 +652,7 @@ void BACKWARD::render(
 	float4* dL_dconic2D,
 	float* dL_dopacity,
 	float* dL_dcolors,
-	float* dL_dcamerapos,
+	float3* dL_dcamerapos,
 	float* dL_dcamerarot)
 {
 	renderCUDA<NUM_CHANNELS> << <grid, block >> >(

@@ -157,8 +157,8 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Te
   torch::Tensor dL_dsh = torch::zeros({P, M, 3}, means3D.options());
   torch::Tensor dL_dscales = torch::zeros({P, 3}, means3D.options());
   torch::Tensor dL_drotations = torch::zeros({P, 4}, means3D.options());
-  torch::Tensor dL_dcamerapos = torch::zeros({3}, means3D.options());
-  torch::Tensor dL_dcamerarot = torch::zeros({3, 3}, means3D.options());
+  torch::Tensor dL_dcamerapos = torch::ones({3}, means3D.options());
+  torch::Tensor dL_dcamerarot = torch::zeros({4, 4}, means3D.options());
   
   if(P != 0)
   {  

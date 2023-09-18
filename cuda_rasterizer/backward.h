@@ -36,7 +36,7 @@ namespace BACKWARD
 		float4* dL_dconic2D,
 		float* dL_dopacity,
 		float* dL_dcolors,
-		float* dL_dcamerapos,
+		float3* dL_dcamerapos,
 		float* dL_dcamerarot);
 
 	void preprocess(
@@ -62,7 +62,7 @@ namespace BACKWARD
 		float* dL_dsh,
 		glm::vec3* dL_dscale,
 		glm::vec4* dL_drot,
-		glm::vec3* dL_dcampos);
+		float3* dL_dcampos);
 }
 
 #endif
