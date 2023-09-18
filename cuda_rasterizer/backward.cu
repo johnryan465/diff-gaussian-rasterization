@@ -15,6 +15,106 @@
 #include <cooperative_groups/reduce.h>
 namespace cg = cooperative_groups;
 
+
+#include <glm/glm.hpp>
+#include <glm/gtc/type_ptr.hpp>
+
+glm::mat3x2 J_term(glm::vec3 t){
+        glm::mat3x2 J;
+        J[0][0] = 1.0/t[2];
+        J[1][0] = 0.0;
+        J[2][0] = -t[0]/(t[2]*t[2]);
+        J[0][1] = 0.0;
+        J[1][1] = 1.0/t[2];
+        J[2][1] = -t[1]/(t[2]*t[2]);
+        return J;
+}
+
+glm::vec2 m_term(glm::vec3 t){
+    glm::vec2 m;
+    m[0] = t[0]/t[2];
+    m[1] = t[1]/t[2];
+    return m;
+}
+
+glm::mat3x2 grad_mu_d(glm::vec3 t){
+    glm::mat3x2 grad;
+    grad[0][0] = -1.0/t[2];
+    grad[0][1] = 0.0;
+    grad[1][0] = 0.0;
+    grad[1][1] = -1.0/t[2];
+    grad[2][0] = t[0]/(t[2]*t[2]);
+    grad[2][1] = t[1]/(t[2]*t[2]);
+    return grad;
+}
+
+
+glm::mat3x2 grad_J_d_0(glm::vec3 t){
+    glm::mat3x2 grad;
+    grad[0][0] = 0.0;
+    grad[1][0] = 0.0;
+    grad[2][0] = -1.0/(t[2]*t[2]);
+    grad[0][1] = 0.0;
+    grad[1][1] = 0.0;
+    grad[2][1] = 0.0;
+    return grad;
+}
+
+glm::mat3x2 grad_J_d_1(glm::vec3 t){
+    glm::mat3x2 grad;
+    grad[0][0] = 0.0;
+    grad[1][0] = 0.0;
+    grad[2][0] = 0.0;
+    grad[0][1] = 0.0;
+    grad[1][1] = 0.0;
+    grad[2][1] = -1.0/(t[2]*t[2]);
+    return grad;
+}
+
+glm::mat3x2 grad_J_d_2(glm::vec3 t){
+    glm::mat3x2 grad;
+    grad[0][0] = -1.0/(t[2]*t[2]);
+    grad[1][0] = 0.0;
+    grad[2][0] = 2.0*t[0]/(t[2]*t[2]*t[2]);
+    grad[0][1] = 0.0;
+    grad[1][1] = -1.0/(t[2]*t[2]);
+    grad[2][1] = 2.0*t[1]/(t[2]*t[2]*t[2]);
+    return grad;
+}
+
+glm::vec3 exp_term_dcampos(glm::vec2 x, glm::vec3 u, glm::mat3 sigma_3d, glm::mat3 w, glm::vec3 d){
+    glm::vec3 t = w * u + d;
+    glm::vec2 mu = x - m_term(t);
+    glm::mat3x2 J = J_term(t);
+    glm::mat3x2 J_w_sigma_wt = J * (w * sigma_3d * glm::transpose(w));
+
+    glm::mat2 sigma = J_w_sigma_wt * glm::transpose(J);
+    glm::mat2 sigma_inv = glm::inverse(sigma);
+    glm::vec2 sigma_inv_mu = sigma_inv * mu;
+
+    float e = std::exp(-0.5 * glm::dot(mu, sigma_inv_mu));
+    glm::mat3x2 grad_J_0 = grad_J_d_0(t);
+    glm::mat3x2 grad_J_1 = grad_J_d_1(t);
+    glm::mat3x2 grad_J_2 = grad_J_d_2(t);
+
+    glm::mat3x2 grad_mu = grad_mu_d(t);
+
+    float res1 = glm::dot(sigma_inv_mu * J_w_sigma_wt, glm::transpose(grad_J_0) * sigma_inv_mu);
+    glm::vec2 tmp1 = glm::vec2(grad_mu[0][0], grad_mu[0][1]);
+    res1 = res1 - glm::dot(tmp1, sigma_inv_mu);
+
+    float res2 = glm::dot(sigma_inv_mu * J_w_sigma_wt, glm::transpose(grad_J_1) * sigma_inv_mu);
+    glm::vec2 tmp2 = glm::vec2(grad_mu[1][0], grad_mu[1][1]);
+    res2 = res2 - glm::dot(tmp2, sigma_inv_mu);
+
+    float res3 = glm::dot(sigma_inv_mu * J_w_sigma_wt, glm::transpose(grad_J_2) * sigma_inv_mu);
+    glm::vec2 tmp3 = glm::vec2(grad_mu[2][0], grad_mu[2][1]);
+    res3 = res3 -  glm::dot(tmp3, sigma_inv_mu);
+
+    return glm::vec3(res1, res2, res3) * e;
+}
+
+
 // Backward pass for conversion of spherical harmonics to RGB for
 // each Gaussian.
 __device__ void computeColorFromSH(int idx, int deg, int max_coeffs, const glm::vec3* means, glm::vec3 campos, const float* shs, const bool* clamped, const glm::vec3* dL_dcolor, glm::vec3* dL_dmeans, glm::vec3* dL_dshs, float3* dL_dcamerapos)
@@ -468,6 +568,8 @@ renderCUDA(
 	float last_alpha = 0;
 	float last_color[C] = { 0 };
 
+	float dL_dcamerapos_local[3] = { 0 };
+
 	// Gradient of pixel coordinate w.r.t. normalized 
 	// screen-space viewport corrdinates (-1 to 1)
 	const float ddelx_dx = 0.5 * W;
@@ -520,6 +622,14 @@ renderCUDA(
 			// gradients w.r.t. alpha (blending factor for a Gaussian/pixel
 			// pair).
 			float dL_dalpha = 0.0f;
+
+			float3 de_dcampos = { 0, 0, 0 };
+
+			/*
+			glm::vec3 de_dcampos = exp_term_dcampos(
+				glm::vec2(d.x, d.y),
+			);*/
+			float3 dalpha_dcampos = {con_o.w * de_dcampos.x, con_o.w * de_dcampos.y, con_o.w * de_dcampos.z};
 			const int global_id = collected_id[j];
 			for (int ch = 0; ch < C; ch++)
 			{
@@ -565,8 +675,16 @@ renderCUDA(
 
 			// Update gradients w.r.t. opacity of the Gaussian
 			atomicAdd(&(dL_dopacity[global_id]), G * dL_dalpha);
+
+			// Update gradients w.r.t. camera position
+			dL_dcamerapos_local[0] += dL_dalpha * dalpha_dcampos.x;
+			dL_dcamerapos_local[1] += dL_dalpha * dalpha_dcampos.y;
+			dL_dcamerapos_local[2] += dL_dalpha * dalpha_dcampos.z;
 		}
 	}
+	atomicAdd(&dL_dcamerapos[0].x, dL_dcamerapos_local[0]);
+	atomicAdd(&dL_dcamerapos[0].y, dL_dcamerapos_local[1]);
+	atomicAdd(&dL_dcamerapos[0].z, dL_dcamerapos_local[2]);
 }
 
 void BACKWARD::preprocess(
