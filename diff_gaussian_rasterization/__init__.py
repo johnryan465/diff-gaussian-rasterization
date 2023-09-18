@@ -263,8 +263,8 @@ class _RasterizeGaussians(torch.autograd.Function):
             grad_camerarot,
             None,
         )
-        print(grad_camerapos)
-        print(grad_camerarot)
+        #print(grad_camerapos)
+        #print(grad_camerarot)
 
         return grads
 
