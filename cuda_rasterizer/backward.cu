@@ -242,9 +242,9 @@ __device__ void computeColorFromSH(int idx, int deg, int max_coeffs, const glm::
 	// change to the view dependent color.
 	// This is the negative of the gradient of the loss w.r.t. the mean
 	//dL_dcamerapos[0] -= addition;
-	//atomicAdd(&dL_dcamerapos[0].x, -addition.x);
-	//atomicAdd(&dL_dcamerapos[0].y, -addition.y);
-	//atomicAdd(&dL_dcamerapos[0].z, -addition.z);
+	atomicAdd(&dL_dcamerapos[0].x, -addition.x);
+	atomicAdd(&dL_dcamerapos[0].y, -addition.y);
+	atomicAdd(&dL_dcamerapos[0].z, -addition.z);
 
 }
 
@@ -260,7 +260,8 @@ __global__ void computeCov2DCUDA(int P,
 	const float* view_matrix,
 	const float* dL_dconics,
 	float3* dL_dmeans,
-	float* dL_dcov)
+	float* dL_dcov,
+	float3* dL_dcamerapos)
 {
 	auto idx = cg::this_grid().thread_rank();
 	if (idx >= P || !(radii[idx] > 0))
@@ -381,6 +382,12 @@ __global__ void computeCov2DCUDA(int P,
 	// that is caused because the mean affects the covariance matrix.
 	// Additional mean gradient is accumulated in BACKWARD::preprocess.
 	dL_dmeans[idx] = dL_dmean;
+
+	// Gradients of loss w.r.t. camera position
+	// t = W * u + d
+	atomicAdd(&dL_dcamerapos[0].x, dL_dtx);
+	atomicAdd(&dL_dcamerapos[0].y, dL_dty);
+	atomicAdd(&dL_dcamerapos[0].z, dL_dtz);
 }
 
 // Backward pass for the conversion of scale and rotation to a 
@@ -568,8 +575,6 @@ renderCUDA(
 	float last_alpha = 0;
 	float last_color[C] = { 0 };
 
-	float dL_dcamerapos_local[3] = { 0 };
-
 	// Gradient of pixel coordinate w.r.t. normalized 
 	// screen-space viewport corrdinates (-1 to 1)
 	const float ddelx_dx = 0.5 * W;
@@ -579,7 +584,7 @@ renderCUDA(
 	for (int i = 0; i < rounds; i++, toDo -= BLOCK_SIZE)
 	{
 		// Load auxiliary data into shared memory, start in the BACK
-		// and load them in revers order.
+		// and load them in reverse order.
 		block.sync();
 		const int progress = i * BLOCK_SIZE + block.thread_rank();
 		if (range.x + progress < range.y)
@@ -623,13 +628,6 @@ renderCUDA(
 			// pair).
 			float dL_dalpha = 0.0f;
 
-			float3 de_dcampos = { 0, 0, 0 };
-
-			/*
-			glm::vec3 de_dcampos = exp_term_dcampos(
-				glm::vec2(d.x, d.y),
-			);*/
-			float3 dalpha_dcampos = {con_o.w * de_dcampos.x, con_o.w * de_dcampos.y, con_o.w * de_dcampos.z};
 			const int global_id = collected_id[j];
 			for (int ch = 0; ch < C; ch++)
 			{
@@ -675,16 +673,8 @@ renderCUDA(
 
 			// Update gradients w.r.t. opacity of the Gaussian
 			atomicAdd(&(dL_dopacity[global_id]), G * dL_dalpha);
-
-			// Update gradients w.r.t. camera position
-			dL_dcamerapos_local[0] += dL_dalpha * dalpha_dcampos.x;
-			dL_dcamerapos_local[1] += dL_dalpha * dalpha_dcampos.y;
-			dL_dcamerapos_local[2] += dL_dalpha * dalpha_dcampos.z;
 		}
 	}
-	atomicAdd(&dL_dcamerapos[0].x, dL_dcamerapos_local[0]);
-	atomicAdd(&dL_dcamerapos[0].y, dL_dcamerapos_local[1]);
-	atomicAdd(&dL_dcamerapos[0].z, dL_dcamerapos_local[2]);
 }
 
 void BACKWARD::preprocess(
@@ -728,7 +718,8 @@ void BACKWARD::preprocess(
 		viewmatrix,
 		dL_dconic,
 		(float3*)dL_dmean3D,
-		dL_dcov3D);
+		dL_dcov3D,
+		dL_dcamerapos);
 
 	// Propagate gradients for remaining steps: finish 3D mean gradients,
 	// propagate color gradients to SH (if desireD), propagate 3D covariance
