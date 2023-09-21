@@ -243,9 +243,9 @@ __device__ void computeColorFromSH(int idx, int deg, int max_coeffs, const glm::
 	// change to the view dependent color.
 	// This is the negative of the gradient of the loss w.r.t. the mean
 	//dL_dcamerapos[0] -= addition;
-	atomicAdd(&dL_dcamerapos[0].x, -addition.x);
-	atomicAdd(&dL_dcamerapos[0].y, -addition.y);
-	atomicAdd(&dL_dcamerapos[0].z, -addition.z);
+	atomicAdd(&dL_dcamerapos[0].x, addition.x);
+	atomicAdd(&dL_dcamerapos[0].y, addition.y);
+	atomicAdd(&dL_dcamerapos[0].z, addition.z);
 
 }
 
@@ -386,6 +386,9 @@ __global__ void computeCov2DCUDA(int P,
 
 	// Gradients of loss w.r.t. camera position
 	// t = W * u + d
+	// The sign of gradient here is flipped for empirical reasons.
+	// I'm not sure why :/
+
 	atomicAdd(&dL_dcamerapos[0].x, -dL_dtx);
 	atomicAdd(&dL_dcamerapos[0].y, -dL_dty);
 	atomicAdd(&dL_dcamerapos[0].z, -dL_dtz);
@@ -721,6 +724,8 @@ void BACKWARD::preprocess(
 		(float3*)dL_dmean3D,
 		dL_dcov3D,
 		dL_dcamerapos);
+
+
 
 	// Propagate gradients for remaining steps: finish 3D mean gradients,
 	// propagate color gradients to SH (if desireD), propagate 3D covariance
