@@ -231,6 +231,7 @@ __device__ void computeColorFromSH(int idx, int deg, int max_coeffs, const glm::
 
 	// Account for normalization of direction
 	float3 dL_dmean = dnormvdv(float3{ dir_orig.x, dir_orig.y, dir_orig.z }, float3{ dL_ddir.x, dL_ddir.y, dL_ddir.z });
+	// float3 dL_dcamerapos_ = dnormvdv(float3{ -dir_orig.x, -dir_orig.y, -dir_orig.z }, float3{ dL_ddir.x, dL_ddir.y, dL_ddir.z });
 
 	// Gradients of loss w.r.t. Gaussian means, but only the portion 
 	// that is caused because the mean affects the view-dependent color.
@@ -385,9 +386,9 @@ __global__ void computeCov2DCUDA(int P,
 
 	// Gradients of loss w.r.t. camera position
 	// t = W * u + d
-	atomicAdd(&dL_dcamerapos[0].x, dL_dtx);
-	atomicAdd(&dL_dcamerapos[0].y, dL_dty);
-	atomicAdd(&dL_dcamerapos[0].z, dL_dtz);
+	atomicAdd(&dL_dcamerapos[0].x, -dL_dtx);
+	atomicAdd(&dL_dcamerapos[0].y, -dL_dty);
+	atomicAdd(&dL_dcamerapos[0].z, -dL_dtz);
 }
 
 // Backward pass for the conversion of scale and rotation to a 
