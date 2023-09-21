@@ -243,9 +243,9 @@ __device__ void computeColorFromSH(int idx, int deg, int max_coeffs, const glm::
 	// change to the view dependent color.
 	// This is the negative of the gradient of the loss w.r.t. the mean
 	//dL_dcamerapos[0] -= addition;
-	atomicAdd(&dL_dcamerapos[0].x, addition.x);
-	atomicAdd(&dL_dcamerapos[0].y, addition.y);
-	atomicAdd(&dL_dcamerapos[0].z, addition.z);
+	atomicAdd(&dL_dcamerapos[0].x, -addition.x);
+	atomicAdd(&dL_dcamerapos[0].y, -addition.y);
+	atomicAdd(&dL_dcamerapos[0].z, -addition.z);
 
 }
 
