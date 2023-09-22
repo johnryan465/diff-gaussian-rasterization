@@ -378,6 +378,8 @@ __global__ void computeCov2DCUDA(int P,
 	// Account for transformation of mean to t
 	// t = transformPoint4x3(mean, view_matrix);
 	float3 dL_dmean = transformVec4x3Transpose({ dL_dtx, dL_dty, dL_dtz }, view_matrix);
+	float3 dL_dcamp = transformVec4x3({ dL_dtx, dL_dty, dL_dtz }, view_matrix);
+
 
 	// Gradients of loss w.r.t. Gaussian means, but only the portion 
 	// that is caused because the mean affects the covariance matrix.
@@ -389,9 +391,9 @@ __global__ void computeCov2DCUDA(int P,
 	// The sign of gradient here is flipped for empirical reasons.
 	// I'm not sure why :/
 
-	atomicAdd(&dL_dcamerapos[0].x, -dL_dtx);
-	atomicAdd(&dL_dcamerapos[0].y, -dL_dty);
-	atomicAdd(&dL_dcamerapos[0].z, -dL_dtz);
+	atomicAdd(&dL_dcamerapos[0].x, -dL_dcamp.x);
+	atomicAdd(&dL_dcamerapos[0].y, -dL_dcamp.y);
+	atomicAdd(&dL_dcamerapos[0].z, -dL_dcamp.z);
 }
 
 // Backward pass for the conversion of scale and rotation to a 
@@ -507,6 +509,9 @@ __global__ void preprocessCUDA(
 	// That's the second part of the mean gradient. Previous computation
 	// of cov2D and following SH conversion also affects it.
 	dL_dmeans[idx] += dL_dmean;
+	atomicAdd(&dL_dcamerapos[0].x, -dL_dmean.x);
+	atomicAdd(&dL_dcamerapos[0].y, -dL_dmean.y);
+	atomicAdd(&dL_dcamerapos[0].z, -dL_dmean.z);
 
 	// Compute gradient updates due to computing colors from SHs
 	if (shs)

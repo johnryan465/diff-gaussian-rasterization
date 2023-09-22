@@ -28,7 +28,6 @@ class GaussianRasterizationSettings(NamedTuple):
     viewmatrix: torch.Tensor
     projmatrix: torch.Tensor
     sh_degree: int
-    campos: Float[Tensor, "3"]
     prefiltered: bool
     debug: bool
 
@@ -108,7 +107,7 @@ class _RasterizeGaussians(torch.autograd.Function):
             raster_settings.image_width,
             sh,
             raster_settings.sh_degree,
-            raster_settings.campos,
+            camerapos,
             raster_settings.prefiltered,
             raster_settings.debug,
         )
@@ -248,8 +247,6 @@ class _RasterizeGaussians(torch.autograd.Function):
                 grad_camerarot,
             ) = _C.rasterize_gaussians_backward(*args)
 
-        # print(grad_camerapos)
-
         grads = (
             grad_means3D,
             grad_means2D,
@@ -263,8 +260,6 @@ class _RasterizeGaussians(torch.autograd.Function):
             grad_camerarot,
             None,
         )
-        # print("Grad:", grad_camerapos)
-        # print(grad_means3D[:10, :])
 
         return grads
 
