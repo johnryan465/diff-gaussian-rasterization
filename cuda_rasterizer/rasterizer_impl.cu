@@ -366,7 +366,6 @@ void CudaRasterizer::Rasterizer::backward(
 	float* dL_dsh,
 	float* dL_dscale,
 	float* dL_drot,
-	float* dL_dcamerapos,
 	float* dL_dcamerarot,
 	bool debug)
 {
@@ -406,7 +405,6 @@ void CudaRasterizer::Rasterizer::backward(
 		(float4*)dL_dconic,
 		dL_dopacity,
 		dL_dcolor,
-		(float3*)dL_dcamerapos,
 		dL_dcamerarot), debug)
 
 	// Take care of the rest of preprocessing. Was the precomputed covariance
@@ -435,5 +433,5 @@ void CudaRasterizer::Rasterizer::backward(
 		dL_dsh,
 		(glm::vec3*)dL_dscale,
 		(glm::vec4*)dL_drot,
-		(float3*)dL_dcamerapos), debug)
+		(float4*)dL_dcamerarot), debug)
 }

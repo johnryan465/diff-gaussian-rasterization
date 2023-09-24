@@ -224,7 +224,6 @@ class _RasterizeGaussians(torch.autograd.Function):
                     grad_sh,
                     grad_scales,
                     grad_rotations,
-                    grad_camerapos,
                     grad_camerarot,
                 ) = _C.rasterize_gaussians_backward(*args)
             except Exception as ex:
@@ -243,7 +242,6 @@ class _RasterizeGaussians(torch.autograd.Function):
                 grad_sh,
                 grad_scales,
                 grad_rotations,
-                grad_camerapos,
                 grad_camerarot,
             ) = _C.rasterize_gaussians_backward(*args)
 
@@ -256,10 +254,11 @@ class _RasterizeGaussians(torch.autograd.Function):
             grad_scales,
             grad_rotations,
             grad_cov3Ds_precomp,
-            grad_camerapos,
+            None,
             grad_camerarot,
             None,
         )
+        # print(grad_camerarot)
 
         return grads
 
