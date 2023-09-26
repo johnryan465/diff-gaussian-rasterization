@@ -71,7 +71,7 @@ __device__ glm::vec3 computeColorFromSH(int idx, int deg, int max_coeffs, const 
 }
 
 // Forward version of 2D covariance matrix computation
-__device__ float3 computeCov2D(const float3& mean, float focal_x, float focal_y, float tan_fovx, float tan_fovy, const float* cov3D, const float* viewmatrix)
+__device__ float3 computeCov2D(const float3& mean, float focal_x, float focal_y, float tan_fovx, float tan_fovy, const float* cov3D, const float* viewmatrix, float cov_offset)
 {
 	// The following models the steps outlined by equations 29
 	// and 31 in "EWA Splatting" (Zwicker et al., 2002). 
@@ -99,9 +99,9 @@ __device__ float3 computeCov2D(const float3& mean, float focal_x, float focal_y,
 	glm::mat3 T = W * J;
 
 	glm::mat3 Vrk = glm::mat3(
-		cov3D[0], cov3D[1], cov3D[2],
-		cov3D[1], cov3D[3], cov3D[4],
-		cov3D[2], cov3D[4], cov3D[5]);
+		cov3D[0] - cov_offset, cov3D[1], cov3D[2],
+		cov3D[1], cov3D[3] - cov_offset, cov3D[4],
+		cov3D[2], cov3D[4], cov3D[5] - cov_offset);
 
 	glm::mat3 cov = glm::transpose(T) * glm::transpose(Vrk) * T;
 
@@ -115,7 +115,7 @@ __device__ float3 computeCov2D(const float3& mean, float focal_x, float focal_y,
 // Forward method for converting scale and rotation properties of each
 // Gaussian to a 3D covariance matrix in world space. Also takes care
 // of quaternion normalization.
-__device__ void computeCov3D(const glm::vec3 scale, float mod, const glm::vec4 rot, float* cov3D)
+__device__ void computeCov3D(const glm::vec3 scale, float cov_offset, float mod, const glm::vec4 rot, float* cov3D)
 {
 	// Create scaling matrix
 	glm::mat3 S = glm::mat3(1.0f);
@@ -140,15 +140,22 @@ __device__ void computeCov3D(const glm::vec3 scale, float mod, const glm::vec4 r
 	glm::mat3 M = S * R;
 
 	// Compute 3D world covariance matrix Sigma
-	glm::mat3 Sigma = glm::transpose(M) * M;
+	glm::mat3 Sigma = glm::transpose(M) * M ;
+	/*Sigma[0][0] += cov_offset;
+	Sigma[1][1] += cov_offset;
+	Sigma[2][2] += cov_offset;*/
+	//Sigma += glm::mat3x3(cov_offset, 0, 0, 0, cov_offset, 0, 0, 0, cov_offset);
 
 	// Covariance is symmetric, only store upper right
-	cov3D[0] = Sigma[0][0];
+	cov3D[0] = Sigma[0][0] + cov_offset;
 	cov3D[1] = Sigma[0][1];
 	cov3D[2] = Sigma[0][2];
-	cov3D[3] = Sigma[1][1];
+	cov3D[3] = Sigma[1][1] + cov_offset;
 	cov3D[4] = Sigma[1][2];
-	cov3D[5] = Sigma[2][2];
+	cov3D[5] = Sigma[2][2] + cov_offset;
+	//cov3D[0] += cov_offset;
+	//cov3D[3] += cov_offset;
+	//cov3D[5] += cov_offset;
 }
 
 // Perform initial steps for each Gaussian prior to rasterization.
@@ -157,6 +164,7 @@ __global__ void preprocessCUDA(int P, int D, int M,
 	const float* orig_points,
 	const glm::vec3* scales,
 	const float scale_modifier,
+	const float cov_offset,
 	const glm::vec4* rotations,
 	const float* opacities,
 	const float* shs,
@@ -208,14 +216,26 @@ __global__ void preprocessCUDA(int P, int D, int M,
 	}
 	else
 	{
-		computeCov3D(scales[idx], scale_modifier, rotations[idx], cov3Ds + idx * 6);
+		computeCov3D(scales[idx], cov_offset, scale_modifier, rotations[idx], cov3Ds + idx * 6);
 		cov3D = cov3Ds + idx * 6;
 	}
 
-	// Compute 2D screen-space covariance matrix
-	float3 cov = computeCov2D(p_orig, focal_x, focal_y, tan_fovx, tan_fovy, cov3D, viewmatrix);
+	// Compute 2D screen-space covariance matrix without scale
+	float3 cov = computeCov2D(p_orig, focal_x, focal_y, tan_fovx, tan_fovy, cov3D, viewmatrix, 0.0);
+	//cov3D[0] += cov_offset;
+	//cov3D[3] += cov_offset;
+	//cov3D[5] += cov_offset;
+	float3 cov_og = computeCov2D(p_orig, focal_x, focal_y, tan_fovx, tan_fovy, cov3D, viewmatrix, cov_offset);
+	//cov3D[0] += cov_offset;
+	//cov3D[3] += cov_offset;
+	//cov3D[5] += cov_offset;
+
+	// float3 cov = computeCov2D(p_orig, focal_x, focal_y, tan_fovx, tan_fovy, cov3D, viewmatrix);
+
+
 
 	// Invert covariance (EWA algorithm)
+	float det_og = (cov_og.x * cov_og.z - cov_og.y * cov_og.y);
 	float det = (cov.x * cov.z - cov.y * cov.y);
 	if (det == 0.0f)
 		return;
@@ -251,7 +271,7 @@ __global__ void preprocessCUDA(int P, int D, int M,
 	radii[idx] = my_radius;
 	points_xy_image[idx] = point_image;
 	// Inverse 2D covariance and opacity neatly pack into one float4
-	conic_opacity[idx] = { conic.x, conic.y, conic.z, opacities[idx] };
+	conic_opacity[idx] = { conic.x, conic.y, conic.z, opacities[idx] * sqrt(det_og / det) };
 	tiles_touched[idx] = (rect_max.y - rect_min.y) * (rect_max.x - rect_min.x);
 }
 
@@ -403,6 +423,7 @@ void FORWARD::preprocess(int P, int D, int M,
 	const float* means3D,
 	const glm::vec3* scales,
 	const float scale_modifier,
+	const float cov_offset,
 	const glm::vec4* rotations,
 	const float* opacities,
 	const float* shs,
@@ -430,6 +451,7 @@ void FORWARD::preprocess(int P, int D, int M,
 		means3D,
 		scales,
 		scale_modifier,
+		cov_offset,
 		rotations,
 		opacities,
 		shs,

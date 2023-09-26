@@ -262,7 +262,7 @@ __global__ void computeCov2DCUDA(int P,
 	const float* dL_dconics,
 	float3* dL_dmeans,
 	float* dL_dcov,
-	float4* dL_dcamerot)
+	float4* dL_dcamerarot)
 {
 	auto idx = cg::this_grid().thread_rank();
 	if (idx >= P || !(radii[idx] > 0))
@@ -382,9 +382,9 @@ __global__ void computeCov2DCUDA(int P,
 
 	// dL/dW = dL/dt * u^T + 2 J^T * dL/dcov2d * J * W * Sigma
 	glm::vec3 dl_dt = glm::vec3(dL_dtx, dL_dty, dL_dtz); 
-	glm::mat3x3 dl_dW = glm::outerProduct(dl_dt, glm::vec3( mean.x, mean.y, mean.z ));
-	dl_dW += 2.0f * Vrk * T * glm::mat3(dL_da, dL_db, 0, dL_db, dL_dc, 0, 0, 0, 0) * glm::transpose(J);
-	dl_dW = glm::transpose(dl_dW);
+	glm::mat3x3 dL_dW = glm::outerProduct(dl_dt, glm::vec3( mean.x, mean.y, mean.z ));
+	dL_dW += 2.0f * J * glm::mat3(dL_da, dL_db, 0, dL_db, dL_dc, 0, 0, 0, 0) * glm::transpose(T) * Vrk;
+	// dL_dW = glm::transpose(dL_dW);
 	//dl_dW += 2.0f * Vrk * glm::transpose(W) * glm::transpose(J) * glm::mat3(dL_da, dL_db, 0, dL_db, dL_dc, 0, 0, 0, 0) * J;
 	// reverse order of multiplication
 	//dl_dW += 2.0f * Vrk * T * glm::mat3(dL_da, dL_db, 0, dL_db, dL_dc, 0, 0, 0, 0) * glm::transpose(J);
@@ -397,35 +397,15 @@ __global__ void computeCov2DCUDA(int P,
 	// Gradients of loss w.r.t. camera position
 	// t = W * u + 
 
-	atomicAdd(&dL_dcamerot[0].x, dl_dW[0][0]);
-	atomicAdd(&dL_dcamerot[0].y, dl_dW[1][0]);
-	atomicAdd(&dL_dcamerot[0].z, dl_dW[2][0]);
-	atomicAdd(&dL_dcamerot[1].x, dl_dW[0][1]);
-	atomicAdd(&dL_dcamerot[1].y, dl_dW[1][1]);
-	atomicAdd(&dL_dcamerot[1].z, dl_dW[2][1]);
-	atomicAdd(&dL_dcamerot[2].x, dl_dW[0][2]);
-	atomicAdd(&dL_dcamerot[2].y, dl_dW[1][2]);
-	atomicAdd(&dL_dcamerot[2].z, dl_dW[2][2]); 
-
-	/*dL_dcamp
-	atomicAdd(&dL_dcamerot[0].x, 0.1);
-	atomicAdd(&dL_dcamerot[0].y, 0.1);
-	atomicAdd(&dL_dcamerot[0].z, 0.1);
-	//atomicAdd(&dL_dcamerot[0].w, 0);
-	atomicAdd(&dL_dcamerot[1].x, 0.1);
-	atomicAdd(&dL_dcamerot[1].y, 0.1);
-	atomicAdd(&dL_dcamerot[1].z, 0.1);
-	//atomicAdd(&dL_dcamerot[1].w, 0);
-	atomicAdd(&dL_dcamerot[2].x, 0.1);
-	atomicAdd(&dL_dcamerot[2].y, 0.1);
-	atomicAdd(&dL_dcamerot[2].z, 0.1);
-	*/
-
-	
-
-	// atomicAdd(&dL_dcamerapos[0].x, -dL_dmean.x);
-	// atomicAdd(&dL_dcamerapos[0].y, -dL_dmean.y);
-	// atomicAdd(&dL_dcamerapos[0].z, -dL_dmean.z);
+	atomicAdd(&dL_dcamerarot[0].x, dL_dW[0][0]);
+	atomicAdd(&dL_dcamerarot[0].y, dL_dW[0][1]);
+	atomicAdd(&dL_dcamerarot[0].z, dL_dW[0][2]);
+	atomicAdd(&dL_dcamerarot[1].x, dL_dW[1][0]);
+	atomicAdd(&dL_dcamerarot[1].y, dL_dW[1][1]);
+	atomicAdd(&dL_dcamerarot[1].z, dL_dW[1][2]);
+	atomicAdd(&dL_dcamerarot[2].x, dL_dW[2][0]);
+	atomicAdd(&dL_dcamerarot[2].y, dL_dW[2][1]);
+	atomicAdd(&dL_dcamerarot[2].z, dL_dW[2][2]);
 }
 
 // Backward pass for the conversion of scale and rotation to a 
@@ -508,6 +488,7 @@ __global__ void preprocessCUDA(
 	const glm::vec3* scales,
 	const glm::vec4* rotations,
 	const float scale_modifier,
+	const float cov_offset,
 	const float* proj,
 	const float* view_matrix,
 	const glm::vec3* campos,
@@ -540,17 +521,9 @@ __global__ void preprocessCUDA(
 	dL_dmean.y = (proj[4] * m_w - proj[7] * mul1) * dL_dmean2D[idx].x + (proj[5] * m_w - proj[7] * mul2) * dL_dmean2D[idx].y;
 	dL_dmean.z = (proj[8] * m_w - proj[11] * mul1) * dL_dmean2D[idx].x + (proj[9] * m_w - proj[11] * mul2) * dL_dmean2D[idx].y;
 
-	//float3 dL_dcamp = transformVec4x3Transpose({ dL_dmean.x, dL_dmean.y, dL_dmean.y}, view_matrix);
-	// float3 dL_dcamp = float3{ dL_dmean.x, dL_dmean.y, dL_dmean.z };//transformVec4x3Transpose({ dL_dmean.x, dL_dmean.y, dL_dmean.y }, view_matrix);
-
-
 	// That's the second part of the mean gradient. Previous computation
 	// of cov2D and following SH conversion also affects it.
 	dL_dmeans[idx] += dL_dmean;
-
-	// atomicAdd(&dL_dcamerapos[0].x, -dL_dcamp.x);
-	// atomicAdd(&dL_dcamerapos[0].y, -dL_dcamp.y);
-	// atomicAdd(&dL_dcamerapos[0].z, -dL_dcamp.z);
 
 	// Compute gradient updates due to computing colors from SHs
 	glm::mat3x3 W = glm::mat3x3(
@@ -559,22 +532,8 @@ __global__ void preprocessCUDA(
 		view_matrix[2], view_matrix[6], view_matrix[10]
 	);
 
-	glm::vec3 d = glm::vec3(view_matrix[3], view_matrix[7], view_matrix[11]);
-	float3 t_ = transformPoint4x3(m, view_matrix);
-	glm::vec3 t = glm::vec3(t_.x, t_.y, t_.z);
 
-	glm::mat3x3 dL_dW = glm::outerProduct(dL_dmean, (t-d));
-
-	
-	atomicAdd(&dL_dcamerarot[0].x, dL_dW[0][0]);
-	atomicAdd(&dL_dcamerarot[0].y, dL_dW[0][1]);
-	atomicAdd(&dL_dcamerarot[0].z, dL_dW[0][2]);
-	atomicAdd(&dL_dcamerarot[1].x, dL_dW[1][0]);
-	atomicAdd(&dL_dcamerarot[1].y, dL_dW[1][1]);
-	atomicAdd(&dL_dcamerarot[1].z, dL_dW[1][2]);
-	atomicAdd(&dL_dcamerarot[2].x, dL_dW[2][0]);
-	atomicAdd(&dL_dcamerarot[2].y, dL_dW[2][1]);
-	atomicAdd(&dL_dcamerarot[2].z, dL_dW[2][2]);
+	glm::mat3x3 dL_dW = glm::outerProduct(dL_dmean * W, glm::vec3(m.x, m.y, m.z));
 
 	if (shs)
 		computeColorFromSH(idx, D, M, (glm::vec3*)means, *campos, shs, clamped, (glm::vec3*)dL_dcolor, (glm::vec3*)dL_dmeans, (glm::vec3*)dL_dsh);
@@ -584,10 +543,16 @@ __global__ void preprocessCUDA(
 		computeCov3D(idx, scales[idx], scale_modifier, rotations[idx], dL_dcov3D, dL_dscale, dL_drot);
 
 	glm::vec3 dL_dcamp = glm::transpose(W) * dL_dmeans[idx];
-	//float3 dL_dcamp = float3{ -dL_dmeans[idx].x, -dL_dmeans[idx].y, -dL_dmeans[idx].z };
-	//atomicAdd(&dL_dcamerapos[0].x, dL_dcamp.x);
-	//atomicAdd(&dL_dcamerapos[0].y, dL_dcamp.y);
-	//atomicAdd(&dL_dcamerapos[0].z, dL_dcamp.z);
+
+	atomicAdd(&dL_dcamerarot[0].x, dL_dW[0][0]);
+	atomicAdd(&dL_dcamerarot[0].y, dL_dW[0][1]);
+	atomicAdd(&dL_dcamerarot[0].z, dL_dW[0][2]);
+	atomicAdd(&dL_dcamerarot[1].x, dL_dW[1][0]);
+	atomicAdd(&dL_dcamerarot[1].y, dL_dW[1][1]);
+	atomicAdd(&dL_dcamerarot[1].z, dL_dW[1][2]);
+	atomicAdd(&dL_dcamerarot[2].x, dL_dW[2][0]);
+	atomicAdd(&dL_dcamerarot[2].y, dL_dW[2][1]);
+	atomicAdd(&dL_dcamerarot[2].z, dL_dW[2][2]);
 	atomicAdd(&dL_dcamerarot[3].x, dL_dcamp.x);
 	atomicAdd(&dL_dcamerarot[3].y, dL_dcamp.y);
 	atomicAdd(&dL_dcamerarot[3].z, dL_dcamp.z);
@@ -766,6 +731,7 @@ void BACKWARD::preprocess(
 	const glm::vec3* scales,
 	const glm::vec4* rotations,
 	const float scale_modifier,
+	const float cov_offset,
 	const float* cov3Ds,
 	const float* viewmatrix,
 	const float* projmatrix,
@@ -815,6 +781,7 @@ void BACKWARD::preprocess(
 		(glm::vec3*)scales,
 		(glm::vec4*)rotations,
 		scale_modifier,
+		cov_offset,
 		projmatrix,
 		viewmatrix,
 		campos,
