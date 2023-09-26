@@ -89,7 +89,7 @@ class _RasterizeGaussians(torch.autograd.Function):
         camerapos: Tensor,
         camerarot: Tensor,
         raster_settings: GaussianRasterizationSettings,
-    ) -> Tuple[Tensor, Tensor]:
+    ) -> Tuple[Tensor, Tensor, Tensor]:
         # Restructure arguments the way that the C++ lib expects them
         args = (
             raster_settings.bg,
@@ -127,6 +127,7 @@ class _RasterizeGaussians(torch.autograd.Function):
                     geomBuffer,
                     binningBuffer,
                     imgBuffer,
+                    depth
                 ) = _C.rasterize_gaussians(*args)
             except Exception as ex:
                 torch.save(cpu_args, "snapshot_fw.dump")
@@ -142,6 +143,7 @@ class _RasterizeGaussians(torch.autograd.Function):
                 geomBuffer,
                 binningBuffer,
                 imgBuffer,
+                depth
             ) = _C.rasterize_gaussians(*args)
 
         # Keep relevant tensors for backward
@@ -160,13 +162,14 @@ class _RasterizeGaussians(torch.autograd.Function):
             imgBuffer,
             camerapos,
             camerarot,
+            depth
         )
-        return color, radii
+        return color, radii, depth
     
     @jaxtyped
     @typechecked
     @staticmethod
-    def backward(ctx, grad_out_color, _):
+    def backward(ctx, grad_out_color, grad_out_radii, grad_out_depth):
         #print(grad_out_color.shape)
         # Restore necessary values from context
         num_rendered = ctx.num_rendered
@@ -184,6 +187,7 @@ class _RasterizeGaussians(torch.autograd.Function):
             imgBuffer,
             camerapos,
             camerarot,
+            depth
         ) = ctx.saved_tensors
 
         # Restructure args as C++ method expects them
