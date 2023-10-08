@@ -19,105 +19,10 @@ namespace cg = cooperative_groups;
 #include <glm/glm.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
-glm::mat3x2 J_term(glm::vec3 t){
-        glm::mat3x2 J;
-        J[0][0] = 1.0/t[2];
-        J[1][0] = 0.0;
-        J[2][0] = -t[0]/(t[2]*t[2]);
-        J[0][1] = 0.0;
-        J[1][1] = 1.0/t[2];
-        J[2][1] = -t[1]/(t[2]*t[2]);
-        return J;
-}
-
-glm::vec2 m_term(glm::vec3 t){
-    glm::vec2 m;
-    m[0] = t[0]/t[2];
-    m[1] = t[1]/t[2];
-    return m;
-}
-
-glm::mat3x2 grad_mu_d(glm::vec3 t){
-    glm::mat3x2 grad;
-    grad[0][0] = -1.0/t[2];
-    grad[0][1] = 0.0;
-    grad[1][0] = 0.0;
-    grad[1][1] = -1.0/t[2];
-    grad[2][0] = t[0]/(t[2]*t[2]);
-    grad[2][1] = t[1]/(t[2]*t[2]);
-    return grad;
-}
-
-
-glm::mat3x2 grad_J_d_0(glm::vec3 t){
-    glm::mat3x2 grad;
-    grad[0][0] = 0.0;
-    grad[1][0] = 0.0;
-    grad[2][0] = -1.0/(t[2]*t[2]);
-    grad[0][1] = 0.0;
-    grad[1][1] = 0.0;
-    grad[2][1] = 0.0;
-    return grad;
-}
-
-glm::mat3x2 grad_J_d_1(glm::vec3 t){
-    glm::mat3x2 grad;
-    grad[0][0] = 0.0;
-    grad[1][0] = 0.0;
-    grad[2][0] = 0.0;
-    grad[0][1] = 0.0;
-    grad[1][1] = 0.0;
-    grad[2][1] = -1.0/(t[2]*t[2]);
-    return grad;
-}
-
-glm::mat3x2 grad_J_d_2(glm::vec3 t){
-    glm::mat3x2 grad;
-    grad[0][0] = -1.0/(t[2]*t[2]);
-    grad[1][0] = 0.0;
-    grad[2][0] = 2.0*t[0]/(t[2]*t[2]*t[2]);
-    grad[0][1] = 0.0;
-    grad[1][1] = -1.0/(t[2]*t[2]);
-    grad[2][1] = 2.0*t[1]/(t[2]*t[2]*t[2]);
-    return grad;
-}
-
-glm::vec3 exp_term_dcampos(glm::vec2 x, glm::vec3 u, glm::mat3 sigma_3d, glm::mat3 w, glm::vec3 d){
-    glm::vec3 t = w * u + d;
-    glm::vec2 mu = x - m_term(t);
-    glm::mat3x2 J = J_term(t);
-    glm::mat3x2 J_w_sigma_wt = J * (w * sigma_3d * glm::transpose(w));
-
-    glm::mat2 sigma = J_w_sigma_wt * glm::transpose(J);
-    glm::mat2 sigma_inv = glm::inverse(sigma);
-    glm::vec2 sigma_inv_mu = sigma_inv * mu;
-
-    float e = std::exp(-0.5 * glm::dot(mu, sigma_inv_mu));
-    glm::mat3x2 grad_J_0 = grad_J_d_0(t);
-    glm::mat3x2 grad_J_1 = grad_J_d_1(t);
-    glm::mat3x2 grad_J_2 = grad_J_d_2(t);
-
-    glm::mat3x2 grad_mu = grad_mu_d(t);
-
-    float res1 = glm::dot(sigma_inv_mu * J_w_sigma_wt, glm::transpose(grad_J_0) * sigma_inv_mu);
-    glm::vec2 tmp1 = glm::vec2(grad_mu[0][0], grad_mu[0][1]);
-    res1 = res1 - glm::dot(tmp1, sigma_inv_mu);
-
-    float res2 = glm::dot(sigma_inv_mu * J_w_sigma_wt, glm::transpose(grad_J_1) * sigma_inv_mu);
-    glm::vec2 tmp2 = glm::vec2(grad_mu[1][0], grad_mu[1][1]);
-    res2 = res2 - glm::dot(tmp2, sigma_inv_mu);
-
-    float res3 = glm::dot(sigma_inv_mu * J_w_sigma_wt, glm::transpose(grad_J_2) * sigma_inv_mu);
-    glm::vec2 tmp3 = glm::vec2(grad_mu[2][0], grad_mu[2][1]);
-    res3 = res3 -  glm::dot(tmp3, sigma_inv_mu);
-
-    return glm::vec3(res1, res2, res3) * e;
-}
-
 
 // Backward pass for conversion of spherical harmonics to RGB for
 // each Gaussian.
-__device__ void computeColorFromSH(int idx, int deg, int max_coeffs, const glm::vec3* means, glm::vec3 campos, const float* shs, const bool* clamped, const glm::vec3* dL_dcolor, glm::vec3* dL_dmeans, glm::vec3* dL_dshs)
+__device__ void computeColorFromSH(int idx, int deg, int max_coeffs, const glm::vec3* means, glm::vec3 campos, const float* shs, const bool* clamped, const glm::vec3* dL_dcolor, glm::vec3* dL_dmeans, glm::vec3* dL_dshs, float4* dL_dcamerarot)
 {
 	// Compute intermediate values, as it is done during forward
 	glm::vec3 pos = means[idx];
@@ -242,10 +147,9 @@ __device__ void computeColorFromSH(int idx, int deg, int max_coeffs, const glm::
 	// Gradients of the loss w.r.t to the camera position due to the
 	// change to the view dependent color.
 	// This is the negative of the gradient of the loss w.r.t. the mean
-	//dL_dcamerapos[0] -= addition;
-	//atomicAdd(&dL_dcamerapos[0].x, -addition.x);
-	//atomicAdd(&dL_dcamerapos[0].y, -addition.y);
-	//atomicAdd(&dL_dcamerapos[0].z, -addition.z);
+	atomicAdd(&dL_dcamerarot[3].x, -addition.x);
+	atomicAdd(&dL_dcamerarot[3].y, -addition.y);
+	atomicAdd(&dL_dcamerarot[3].z, -addition.z);
 
 }
 
@@ -384,7 +288,7 @@ __global__ void computeCov2DCUDA(int P,
 	glm::vec3 dl_dt = glm::vec3(dL_dtx, dL_dty, dL_dtz); 
 	glm::mat3x3 dL_dW = glm::outerProduct(dl_dt, glm::vec3( mean.x, mean.y, mean.z ));
 	dL_dW += 2.0f * J * glm::mat3(dL_da, dL_db, 0, dL_db, dL_dc, 0, 0, 0, 0) * glm::transpose(T) * Vrk;
-	// dL_dW = glm::transpose(dL_dW);
+	// dL_dW = glm::transpose(dL_dW);dL_dcamp
 	//dl_dW += 2.0f * Vrk * glm::transpose(W) * glm::transpose(J) * glm::mat3(dL_da, dL_db, 0, dL_db, dL_dc, 0, 0, 0, 0) * J;
 	// reverse order of multiplication
 	//dl_dW += 2.0f * Vrk * T * glm::mat3(dL_da, dL_db, 0, dL_db, dL_dc, 0, 0, 0, 0) * glm::transpose(J);
@@ -406,6 +310,9 @@ __global__ void computeCov2DCUDA(int P,
 	atomicAdd(&dL_dcamerarot[2].x, dL_dW[2][0]);
 	atomicAdd(&dL_dcamerarot[2].y, dL_dW[2][1]);
 	atomicAdd(&dL_dcamerarot[2].z, dL_dW[2][2]);
+	atomicAdd(&dL_dcamerarot[3].x, -dL_dcamp.x);
+	atomicAdd(&dL_dcamerarot[3].y, -dL_dcamp.y);
+	atomicAdd(&dL_dcamerarot[3].z, -dL_dcamp.z);
 }
 
 // Backward pass for the conversion of scale and rotation to a 
@@ -536,13 +443,13 @@ __global__ void preprocessCUDA(
 	glm::mat3x3 dL_dW = glm::outerProduct(dL_dmean * W, glm::vec3(m.x, m.y, m.z));
 
 	if (shs)
-		computeColorFromSH(idx, D, M, (glm::vec3*)means, *campos, shs, clamped, (glm::vec3*)dL_dcolor, (glm::vec3*)dL_dmeans, (glm::vec3*)dL_dsh);
+		computeColorFromSH(idx, D, M, (glm::vec3*)means, *campos, shs, clamped, (glm::vec3*)dL_dcolor, (glm::vec3*)dL_dmeans, (glm::vec3*)dL_dsh, dL_dcamerarot);
 
 	// Compute gradient updates due to computing covariance from scale/rotation
 	if (scales)
 		computeCov3D(idx, scales[idx], scale_modifier, rotations[idx], dL_dcov3D, dL_dscale, dL_drot);
 
-	glm::vec3 dL_dcamp = glm::transpose(W) * dL_dmeans[idx];
+	glm::vec3 dL_dcamp = glm::transpose(W) * dL_dmean;
 
 	atomicAdd(&dL_dcamerarot[0].x, dL_dW[0][0]);
 	atomicAdd(&dL_dcamerarot[0].y, dL_dW[0][1]);
